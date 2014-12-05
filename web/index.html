@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf8">
+    <title>Graph</title>
+    <style>
+      body {
+        font-family: sans-serif;
+      }
+      .container {
+        position: relative;
+        margin: 120px auto 0 auto;
+        width: 980px;
+      }
+      #loading {
+        height: 32px;
+        width: 32px;
+        margin: 354px auto 0 auto;
+        background-image: url('ajax-loader.gif');
+      }
+      .hidden {
+        display: none;
+      }
+      .axis path,
+      .axis line {
+        fill: none;
+        stroke: #000;
+      }
+      .line {
+        fill: none;
+        stroke-width: 1.5px;
+      }
+      .overlay {
+        fill: none;
+        pointer-events: all;
+      }
+      .legend {
+        position: absolute;
+        top: 200px;
+        right: -85px;
+        padding: 0 30px 10px 30px;
+        border: 1px solid black;
+        font-size: 14px;
+        text-align: center;
+      }
+      .tooltip {
+        position: absolute;
+        font-size: 14px;
+        bottom: -20px;
+        width: 100%;
+        text-align: center;
+      }
+      .tooltip > span {
+        margin-right: 10px;
+      }
+      .focus circle {
+        fill: none;
+      }
+      .dh  { color: #1f77b4; stroke: #1f77b4; }
+      .dir { color: #ff7f0e; stroke: #ff7f0e; }
+      .gh  { color: #2ca02c; stroke: #2ca02c; }
+      .uv  { color: #9467bd; stroke: #9467bd; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div id="loading"></div>
+      <div class="legend hidden">
+        <p><b>Key</b></p>
+        <div class="dh">DH</div>
+        <div class="dir">DIR</div>
+        <div class="gh">GH</div>
+        <div class="uv">UV</div>
+      </div>
+      <div class="tooltip hidden">
+        <span class="date"></span>
+        <span class="dh">DH: <span></span></span>
+        <span class="dir">DIR: <span></span></span>
+        <span class="gh">GH: <span></span></span>
+        <span class="uv">UV: <span></span></span>
+      </div>
+      <svg></svg>
+    </div>
+    <script src="http://d3js.org/d3.v3.min.js"></script>
+    <script>
+      var margin = {top: 20, right: 20, bottom: 30, left: 70},
+        width = 980 - margin.left - margin.right,
+        height = 500 - margin.top - margin.bottom;
+
+      var parseDate = d3.time.format.utc("%Y-%m-%d %H:%M:%S.%L").parse,
+        formatDate = d3.time.format("%I:%M %p"),
+        bisectDate = d3.bisector(function(d) { return parseDate(d.date); }).left;
+
+      var x = d3.time.scale()
+        .range([0, width]);
+
+      var y = d3.scale.linear()
+        .range([height, 0]);
+
+      var xAxis = d3.svg.axis()
+        .scale(x)
+        .orient("bottom");
+
+      var yAxis = d3.svg.axis()
+        .scale(y)
+        .orient("left");
+
+      var lines = ["dh", "dir", "gh", "uv"].map(function(name) {
+        return d3.svg.line()
+          .x(function(d) { return x(parseDate(d.date)); })
+          .y(function(d) { return y(d[name]); });
+      });
+
+      var svg = d3.select("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+      d3.json("http://104.131.105.76/data", function(rawData) {
+        d3.select("#loading").classed("hidden", true);
+        d3.select(".legend").classed("hidden", false);
+
+        var data = rawData.data;
+
+        var range = [0];
+        ["dh", "dir", "gh", "uv"].map(function(name) {
+          range = range.concat(data.map(function(d) { return d[name]; }));
+        });
+
+        x.domain(d3.extent(data, function(d) { return parseDate(d.date); }));
+        y.domain(d3.extent(range, function(d) { return d; }));
+
+        svg.append("g")
+          .attr("class", "x axis")
+          .attr("transform", "translate(0," + height + ")")
+          .call(xAxis);
+
+        svg.append("g")
+          .attr("class", "y axis")
+          .call(yAxis)
+        .append("text")
+          .attr("transform", "rotate(-90)")
+          .attr("y", 6)
+          .attr("dx", -170)
+          .attr("dy", -55)
+          .style("text-anchor", "end")
+          .text("Radiation (W)");
+
+        var focus = ["dh", "dir", "gh", "uv"].map(function(cls) {
+          var f = svg.append("g")
+            .attr("class", "focus " + cls + " hidden");
+          f.append("circle")
+            .attr("r", 3);
+          return f;
+        });
+
+        ["dh", "dir", "gh", "uv"].map(function(cls, i) {
+          svg.append("path")
+            .datum(data)
+            .attr("class", "line " + cls)
+            .attr("d", lines[i]);
+        });
+
+        svg.append("rect")
+          .attr("class", "overlay")
+          .attr("width", width)
+          .attr("height", height)
+          .on("mouseover", function() {
+              d3.select(".tooltip").classed("hidden", false);
+              d3.selectAll(".focus").classed("hidden", false);
+            })
+          .on("mouseout", function() {
+              d3.select(".tooltip").classed("hidden", true);
+              d3.selectAll(".focus").classed("hidden", true);
+            })
+          .on("mousemove", function() {
+            var x0 = x.invert(d3.mouse(this)[0])
+              i = bisectDate(data, x0, 1),
+              d0 = data[i - 1],
+              d1 = data[i],
+              d = x0 - parseDate(d0.date) > parseDate(d1.date) - x0 ? d1 : d0;
+
+            d3.select(".tooltip .date").text(formatDate(parseDate(d.date)));
+            d3.select(".tooltip .dh span").text(d.dh);
+            d3.select(".tooltip .dir span").text(d.dir);
+            d3.select(".tooltip .gh span").text(d.gh);
+            d3.select(".tooltip .uv span").text(d.uv);
+
+            focus[0].attr("transform", "translate(" + x(parseDate(d.date)) + "," + y(d.dh) + ")");
+            focus[1].attr("transform", "translate(" + x(parseDate(d.date)) + "," + y(d.dir) + ")");
+            focus[2].attr("transform", "translate(" + x(parseDate(d.date)) + "," + y(d.gh) + ")");
+            focus[3].attr("transform", "translate(" + x(parseDate(d.date)) + "," + y(d.uv) + ")");
+          });
+      });
+    </script>
+  </body>
+</html>
